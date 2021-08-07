@@ -10,5 +10,5 @@ In some cases you may need to uninstall/remove the current driver if this is not
 ```bash
 :~$ sudo apt-get remove --purge nvidia* && \
 :~$ sudo ubuntu-drivers autoinstall
-```
+```sudo apt-get remove --purge nvidia* && sudo ubuntu-drivers autoinstall
 
