@@ -159,38 +159,75 @@ A CA key is a regular private-public key pair.
 ```bash
 ssh-keygen -t rsa -f ca
 ```
+- the `-t` specifies the type of key to create.  <br/>
+- the possible values are [ dsa | ecdsa | ed25519 | rsa ].
+- the `-f` specifies the filename of the key file to be created.
 
 The -f ca option simply specifies the output filename as 'ca'. This results in the two files being generated - ca (private key) and ca.pub (public key).
 
-5. ### `Sign your user key with the CA's private key:`
+1. ### `Sign your user key with the CA's private key:`
 
 ```bash
 ssh-keygen -s path/to/ca -I myuser@myhost -n myuser ~/.ssh/id_rsa.pub -C "<some unique comment/info about the keys, i.e. user@host domain/ip address>"
 ```
 
 This will generate a new file named `~/.ssh/id_rsa-cert.pub` which contains the SSH certificate. 
-- The `-s` option specifies the path to the CA private key, 
+- the `-s` option specifies the path to the CA private key, 
 - the `-I` option specifies an identifier that is logged at the server-side, and 
 - the `-n` option specifies the principal (username). 
 - the `-C` option specifies unique comments associated with the certificate, usually "user@host domain/ip address or email address or some meaningful info"
 
 6. ### ***`The contents of a certificate can be verified by running:`***
 
-```bash
-ssh-keygen -L -f ~/.ssh/id_rsa-cert.pub.
-```
+    ```bash
+    $ ssh-keygen -L -f ~/.ssh/id_rsa-cert.pub.
+    ```
 
-Now you can edit your configuration file (~/.ssh/config) and include the `CertificateFile` directive to point to the newly generated certificate. [As the manual indicates](https://man.openbsd.org/ssh_config#CertificateFile), the `IdentityFile` directive must also be specified along with it to identify the corresponding private key.
+    Now you can edit your configuration file (~/.ssh/config) and include the `CertificateFile` directive to point to the newly generated certificate. [As the manual indicates](https://man.openbsd.org/ssh_config#CertificateFile), the `IdentityFile` directive must also be specified along with it to identify the corresponding private key.
 
-The last thing to do is to tell the server to trust your CA certificate. You'll need to copy over the public key of the CA certificate to the target server. This is done by editing the `/etc/ssh/sshd_config` file and specifying the `TrustedUserCAKeys` directive:
+    The last thing to do is to tell the server to trust your CA certificate. You'll need to copy over the public key of the CA certificate to the target server. This is done by editing the `/etc/ssh/sshd_config` file and specifying the `TrustedUserCAKeys` directive:
 
-`TrustedUserCAKeys /path/to/ca.pub`
+    `TrustedUserCAKeys /path/to/ca.pub`
 
-Once that is done, restart the SSH daemon on the server. On my CentOS system, this is done by running `systemctl restart sshd`. After that, you will be able to log into the system using your certificate. Tracing your ssh connection using the verbose flag (`-v`) will show the certificate being offered to the server and the server accepting it.
+    Once that is done, restart the SSH daemon on the server. On my CentOS system, this is done by running `systemctl restart sshd`. After that, you will be able to log into the system using your certificate. Tracing your ssh connection using the verbose flag (`-v`) will show the certificate being offered to the server and the server accepting it.
 
-One last thing to note here is that any user key signed with the same CA key will now be trusted by the target server. Access to the CA keys must be controlled in any practical scenario. There are also directives such as `AuthorizedPrincipalsFile` that can be used to limit the access from the server side. See the [manual for sshd_config](https://man.openbsd.org/sshd_config) for more details. On the client side, the certificates can also be created with tighter specifications. See the manual for ssh-keygen for those details.
+    One last thing to note here is that any user key signed with the same CA key will now be trusted by the target server. Access to the CA keys must be controlled in any practical scenario. There are also directives such as `AuthorizedPrincipalsFile` that can be used to limit the access from the server side. See the [manual for sshd_config](https://man.openbsd.org/sshd_config) for more details. On the client side, the certificates can also be created with tighter specifications. See the manual for ssh-keygen for those details.
+
+    `Creating a key pair (public key and private key) only takes a minute. The key files are usually stored in the ~/.ssh directory.`
+
+7. ### **Copy the key to a server**
+
+    Once an SSH key has been created, the `ssh-copy-id` command can be used to install it as an authorized key on the server. Once the key has been authorized for SSH, it grants access to the server without a password.
+
+    Use a command like the following to copy SSH key:
+
+    ```bash
+    $ ssh-copy-id -i ~/.ssh/mykey user@host
+    ```
+
+    This logs into the server host, and copies keys to the server, and configures them to grant access by adding them to the `authorized_keys` file. The copying may ask for a password or other authentication for the server.
+
+    ***`Only the public key is copied to the server. The private key should never be copied to another machine.`***
+
+8. Adding your SSH key to the ssh-agent:
+
+    ```bash
+    $ eval "$(ssh-agent -s)"
+    > Agent pid 59566
+
+    ssh-add ~/.ssh/id_ed25519_"<some unique identifier>"
+    ```
 
 
+9. ### Test the new key:
+
+    Once the key has been copied, it is best to test it:
+
+    ```bash
+    $ ssh -i ~/.ssh/mykey user@host
+    ```
+
+    The login should now complete without asking for a password. Note, however, that the command might ask for the passphrase you specified for the key.
 ---
 ---
 

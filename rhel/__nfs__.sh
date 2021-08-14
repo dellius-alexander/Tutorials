@@ -27,7 +27,7 @@ __nfs__() {
 _input=($(echo ${@}))
 declare -p _input &>/dev/null
 if [[ $UID == 0 ]] &&  [[ ${#_input[@]} == 3 ]] && [[ ${_input[0]} =~ $_url_pattern ]] && [[ ${_input[1]} =~ $_file_pattern ]] && [[ ${_input[2]} =~ $_file_pattern ]]; then
-yum install yum -y  nfs-utils nfs-utils-lib firewalld
+yum install -y nfs-utils firewalld
 wait $!
 printf "\n\n"
 [ ! -d "/mnt/nfs" ] && mkdir -p ${_input[2]}   # /mnt/local/nfs
