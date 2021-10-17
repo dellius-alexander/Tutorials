@@ -80,3 +80,83 @@ Tue Sep  7 18:15:04 2021
 
 ```
 ## [See Docker Docs for use cases](https://docs.docker.com/config/containers/resource_constraints/#access-an-nvidia-gpu)
+---
+
+# Setup Docker to Use nvidia-container-runtime manually
+
+**[Click here for NVidia offical documentation](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/user-guide.html#systemd-drop-in-file)**
+
+The NVIDIA Container Toolkit provides different options for enumerating GPUs and the capabilities that are supported for CUDA containers. This user guide demonstrates the following features of the NVIDIA Container Toolkit:
+
+- Registering the NVIDIA runtime as a custom runtime to Docker
+- Using environment variables to enable the following:
+- Enumerating GPUs and controlling which GPUs are visible to the container
+- Controlling which features of the driver are visible to the container using capabilities
+- Controlling the behavior of the runtime using constraints
+
+## Adding the NVIDIA Runtime: 
+
+***Note: Do not follow this section if you installed the nvidia-docker2 package, it already registers the runtime.***
+
+
+To register the nvidia runtime, use the method below that is best suited to your environment. You might need to merge the new argument with your existing configuration. Three options are available:
+
+### 1. Systemd drop-in file
+
+-  add a new docker service for the nvidia-container-runtime
+
+    ```bash
+    mkdir -p /etc/systemd/system/docker.service.d
+    ```
+
+-  Add the docker service to use nvidia-container-runtime
+
+    ```bash
+    tee /etc/systemd/system/docker.service.d/override.conf <<EOF
+    [Service]
+    ExecStart=
+    ExecStart=/usr/bin/dockerd --host=fd:// --add-runtime=nvidia=/usr/bin/nvidia-container-runtime
+    EOF
+    ```
+
+-  restart the docker daemon
+
+    ```bash
+    systemctl daemon-reload \
+        && systemctl restart docker
+    ```
+
+### 2. Daemon configuration file
+
+-  The nvidia runtime can also be registered with Docker using the daemon.json configuration file: 
+-  You can optionally reconfigure the default runtime by adding the following to /etc/docker/daemon.json
+```bash
+tee /etc/docker/daemon.json <<EOF
+{
+    // "default-runtime": "nvidia",
+    "runtimes": {
+        "nvidia": {
+            "path": "/usr/bin/nvidia-container-runtime",
+            "runtimeArgs": []
+        }
+    }
+}
+EOF
+pkill -SIGHUP dockerd
+```
+
+### 3. Command Line
+
+-  Use dockerd to add the nvidia runtime:
+
+    ```bash
+    dockerd --add-runtime=nvidia=/usr/bin/nvidia-container-runtime [...]
+    ```
+
+### 4. Check so see how many GPUs are registrered with CUDA
+
+-  we have completed the setup of CUDA. ENJOY...
+
+```bash
+docker run --rm --gpus all nvidia/cuda:11.0-base  nvidia-smi --query-gpu=uuid --format=csv
+```
