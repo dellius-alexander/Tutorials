@@ -32,8 +32,8 @@
 
 <p>Run <b>xfs_repair /dev/<\your partition\> </b></p>
 <div class="code-raw"><div class="code-raw-toolbar"><a href="#" class="code-raw-btn">Raw</a></div>
-<pre>
-<code># xfs_repair /dev/sda1
+<pre>// note: /dev/mapper/cl-root refers to splice block or raid configured block device
+<code># xfs_repair [ -L|NONE ] [ /dev/sda1 or /dev/mapper/cl-root]
 # reboot
 </code></pre>
 </div>
