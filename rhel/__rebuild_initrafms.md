@@ -69,7 +69,6 @@
     initrd16 /initramfs-3.10.0-514.6.1.el7.x86_64.img
     initrd16 /initramfs-3.10.0-514.el7.x86_64.img
     initrd16 /initramfs-0-rescue-29579289bce743ebbf3d42aa22ebd5fe.img
-
 # grep "menuentry " /boot/grub2/grub.cfg
 menuentry 'Red Hat Enterprise Linux Server (3.10.0-514.6.1.el7.x86_64) ...'
 menuentry 'Red Hat Enterprise Linux Server (3.10.0-514.el7.x86_64) ... '
