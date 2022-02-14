@@ -27,8 +27,8 @@ function local:install-packages($path){
         throw "Unable to locate file: $file_abs"
     }
     # create log directory
-    if (test-path $CUSTOM_LOG_DIR){}else{
-        ew-Item -ItemType "directory" -Path "$CUSTOM_LOG_DIR" -Force -ErrorAction SilentlyContinue}
+    if (test-path $CUSTOM_LOG_DIR){$CUSTOM_LOG_DIR+" Exists......"}else{
+        New-Item -ItemType "directory" -Path "$CUSTOM_LOG_DIR" -Force -ErrorAction SilentlyContinue}
     # length of split path
     $len = $file_abs.split("\").Length
     # get the leaf node of file path aka file name
