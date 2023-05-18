@@ -1,0 +1,17 @@
+cmd:
+  # Option: run/backup/rollback
+  type: run
+  runWithBackup: true
+config:
+  sourceVersion: 2.1.4   # Specify your milvus version
+  targetVersion: 2.2.8
+  backupFilePath: /tmp/migration.bak
+metastore:
+  type: etcd
+etcd:
+  endpoints:
+    - milvus-etcd:2379  # Use the etcd container name
+  rootPath: by-dev # The root path where data is stored in etcd
+  metaSubPath: meta
+  kvSubPath: kv
+  leaseSubPath: lease
