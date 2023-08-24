@@ -13,7 +13,7 @@ $ sudo apt-get install -y kodi
 ```bash
 # see Dependency list for details
 sudo apt-get install -y \
-kodi \r
+kodi \
 kodi-inputstream-adaptive \
 kodi-inputstream-ffmpegdirect \
 kodi-inputstream-rtmp \
