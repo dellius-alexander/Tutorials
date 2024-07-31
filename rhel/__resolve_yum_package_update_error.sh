@@ -1,3 +1,4 @@
+#!/bin/bash
 # Step 1: Check Network Connectivity
 ping -c 4 google.com
 
