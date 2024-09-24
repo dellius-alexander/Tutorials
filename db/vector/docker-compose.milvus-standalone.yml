@@ -1,0 +1,138 @@
+version: '3.8'
+networks:
+  milvus-standalone:
+    name: milvus-standalone
+    driver: bridge
+
+volumes:
+  etcd_data_std: null
+  minio_data_std: null
+  milvus_data_std: null
+  mysql_data_std: null
+
+services:
+  # Etcd service
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+      - ENDPOINTS=http://127.0.0.1:2379,http://0.0.0.0:2379
+    volumes:
+      - etcd_data_std:/etcd
+    networks:
+        - milvus-standalone
+    command: etcd --data-dir='/etcd' --name milvus_etcd0 --initial-advertise-peer-urls 'http://127.0.0.1:2380' --listen-peer-urls 'http://0.0.0.0:2380' --advertise-client-urls 'http://127.0.0.1:2379' --listen-client-urls 'http://0.0.0.0:2379' --initial-cluster milvus_etcd0='http://127.0.0.1:2380'
+    healthcheck:
+      test: [ "CMD", "etcdctl", "--endpoints=http://127.0.0.1:2379", "endpoint", "health" ]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+  # Minio service
+  minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2022-03-17T06-34-49Z
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data_std:/minio_data
+    networks:
+      - milvus-standalone
+    command: >
+      minio server /minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+  # MySQL service
+  mysql:
+    image: mysql:8.0.28
+    container_name: mysql
+    shm_size: 2g
+    environment:
+      MYSQLD_USER: mysql
+      # # Disable User Secret
+      # MYSQL_ALLOW_EMPTY_PASSWORD: 0
+#      MYSQL_DATABASE: ${MYSQL_DATABASE:-milvus_meta}
+#      MYSQL_USER: ${MYSQL_USER:-alpha}
+#      MYSQL_PASSWORD: ${MYSQL_PASSWD:-developer}
+      # Secret for root access
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWD:-developer}
+    # run init db entrypoint script
+    volumes:
+      # # mysql data directory
+      - mysql_data_std:/var/lib/mysql
+      - .devcontainer/configs/mysql/entrypoint:/docker-entrypoint-initdb.d:rw
+    restart: on-failure
+    expose:
+      - 3306
+      - 33060
+      - 33061
+    ports:
+      - "3306:3306"
+      - "33060:33060"
+      - "33061:33061"
+    networks:
+      - milvus-standalone
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--silent"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+  # Milvus service
+  standalone:
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v2.2.8
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-milvus_meta}
+      MYSQL_USER: ${MYSQL_USER:-alpha}
+      MYSQL_PASSWORD: ${MYSQL_PASSWD:-developer}
+    volumes:
+      # container paths to milvus configuration files /milvus/configs/milvus.yaml
+      - .devcontainer/configs/milvus/milvus.yaml:/milvus/configs/milvus.yaml
+      - milvus_data_std:/milvus
+    networks:
+      - milvus-standalone
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      etcd:
+        condition: service_healthy
+    healthcheck:
+        test: ["CMD", "curl", "-f", "http://127.0.0.1:9091/api/v1/health"]
+        interval: 30s
+        timeout: 30s
+        retries: 5
+        start_period: 30s
+  # Milvus GUI service
+  milvus-gui:
+    image: zilliz/attu:latest
+    container_name: milvus-gui
+    environment:
+      MILVUS_URL: http://standalone:19530
+    ports:
+      - "3000:3000"
+    networks:
+        - milvus-standalone
+    depends_on:
+        standalone:
+            condition: service_healthy
+

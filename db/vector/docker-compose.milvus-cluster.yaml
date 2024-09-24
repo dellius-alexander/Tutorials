@@ -1,0 +1,392 @@
+version: '3.8'
+
+networks:
+    milvus-cluster:
+      name: milvus-cluster
+      driver: bridge
+      ipam:
+        driver: default
+
+volumes:
+    mysql_data: null
+    milvus_proxy: null
+    milvus_data: null
+    milvus_root: null
+    milvus_query: null
+    milvus_index: null
+    etcd_data: null
+    minio_data: null
+    pulsar_data: null
+    zookeeper_data: null
+    bookkeeper_data: null
+
+services:
+  # Etcd service
+  etcd:
+    build:
+        context: .
+        dockerfile: .devcontainer/etcd.Dockerfile
+    container_name: milvus-etcd
+#    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+      - ENDPOINTS="http://127.0.0.1:2379,http://0.0.0.0:2379"
+    volumes:
+      - etcd_data:/etcd
+    networks:
+        - milvus-cluster
+    command: etcd --data-dir='/etcd' --name milvus_etcd0 --initial-advertise-peer-urls 'http://127.0.0.1:2380' --listen-peer-urls 'http://0.0.0.0:2380' --advertise-client-urls 'http://127.0.0.1:2379' --listen-client-urls 'http://0.0.0.0:2379' --initial-cluster milvus_etcd0='http://127.0.0.1:2380'
+    healthcheck:
+      test: [ "CMD", "etcdctl", "--endpoints=http://127.0.0.1:2379", "endpoint", "health" ]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+  # Minio service
+  minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2022-03-17T06-34-49Z
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/minio_data
+    networks:
+      - milvus-cluster
+    command: >
+      minio server /minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+
+  # Pulsar service
+  pulsar:
+    build:
+        context: .
+        dockerfile: .devcontainer/pulsar.Dockerfile
+    container_name: milvus-pulsar
+#    image: apachepulsar/pulsar:2.8.2
+    hostname: pulsar
+    volumes:
+      - pulsar_data:/pulsar/data
+    environment:
+      - HOSTNAME=pulsar
+      - PORT=8080
+      # bin/apply-config-from-env.py script will modify the configuration file based on the environment variables
+      # nettyMaxFrameSizeBytes must be calculated from maxMessageSize + 10240 (padding)
+      - nettyMaxFrameSizeBytes=104867840 # this is 104857600 + 10240 (padding)
+      - defaultRetentionTimeInMinutes=10080
+      - defaultRetentionSizeInMB=8192
+      # maxMessageSize is missing from standalone.conf, must use PULSAR_PREFIX_ to get it configured
+      - PULSAR_PREFIX_maxMessageSize=104857600
+      - PULSAR_GC=-XX:+UseG1GC
+    command: |
+      /bin/bash -c \
+      "bin/apply-config-from-env.py conf/standalone.conf && \
+      exec bin/pulsar standalone --no-functions-worker --no-stream-storage"
+    networks:
+      - milvus-cluster
+    expose:
+      - "8080"
+    ports:
+      - "8080:8080"
+    healthcheck:
+        test: ["CMD", "bin/pulsar-admin", "brokers", "healthcheck"]
+        interval: 30s
+        timeout: 20s
+        retries: 5
+
+
+  # Root Coordinator service
+  rootcoord:
+    build:
+        context: .
+        dockerfile: .devcontainer/milvus.Dockerfile
+    container_name: milvus-rootcoord
+#    image: milvusdb/milvus:v2.2.8
+    command: ["milvus", "run", "rootcoord"]
+    environment:
+      PORT: 53100
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      PULSAR_ADDRESS: pulsar://pulsar:6650
+      ROOT_COORD_ADDRESS: rootcoord:53100
+    volumes:
+      # container paths to milvus configuration files /milvus/configs/milvus.yaml
+      - .devcontainer/configs/milvus/milvus-cluster.yaml:/milvus/configs/milvus.yaml
+      - milvus_root:/milvus
+#    healthcheck:
+#      test: ["CMD", "node", "/opt/healthcheck/healthcheck.js"]
+#      interval: 30s
+#      timeout: 30s
+#      retries: 5
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    networks:
+        - milvus-cluster
+
+  # Query Coordinator service
+  querycoord:
+    build:
+      context: .
+      dockerfile: .devcontainer/milvus.Dockerfile
+    container_name: milvus-querycoord
+#    image: milvusdb/milvus:v2.2.8
+    command: ["milvus", "run", "querycoord"]
+    environment:
+      PORT: 19531
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      PULSAR_ADDRESS: pulsar://pulsar:6650
+      QUERY_COORD_ADDRESS: querycoord:19531
+    volumes:
+      # container paths to milvus configuration files /milvus/configs/milvus.yaml
+      - .devcontainer/configs/milvus/milvus-cluster.yaml:/milvus/configs/milvus.yaml
+      - milvus_query:/milvus
+#    healthcheck:
+#      test: ["CMD", "node", "/opt/healthcheck/healthcheck.js"]
+#      interval: 30s
+#      timeout: 30s
+#      retries: 5
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    networks:
+        - milvus-cluster
+
+  # Query Node service
+  querynode:
+    build:
+      context: .
+      dockerfile: .devcontainer/milvus.Dockerfile
+    container_name: milvus-querynode
+#    image: milvusdb/milvus:v2.2.8
+    command: ["milvus", "run", "querynode"]
+    environment:
+      PORT: 21123
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      PULSAR_ADDRESS: pulsar://pulsar:6650
+    volumes:
+      # container paths to milvus configuration files /milvus/configs/milvus.yaml
+      - .devcontainer/configs/milvus/milvus-cluster.yaml:/milvus/configs/milvus.yaml
+      - milvus_query:/milvus
+    depends_on:
+      querycoord:
+        condition: service_healthy
+    networks:
+        - milvus-cluster
+
+  # Index Coordinator service
+  indexcoord:
+    build:
+      context: .
+      dockerfile: .devcontainer/milvus.Dockerfile
+    container_name: milvus-indexcoord
+#    image: milvusdb/milvus:v2.2.8
+    command: ["milvus", "run", "indexcoord"]
+    environment:
+      PORT: 31000
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      PULSAR_ADDRESS: pulsar://pulsar:6650
+      INDEX_COORD_ADDRESS: indexcoord:31000
+    volumes:
+      # container paths to milvus configuration files /milvus/configs/milvus.yaml
+      - .devcontainer/configs/milvus/milvus-cluster.yaml:/milvus/configs/milvus.yaml
+      - milvus_index:/milvus
+#    healthcheck:
+#      test: ["CMD", "node", "/opt/healthcheck/healthcheck.js"]
+#      interval: 30s
+#      timeout: 30s
+#      retries: 5
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    networks:
+        - milvus-cluster
+
+  # Index Node service
+  indexnode:
+    build:
+      context: .
+      dockerfile: .devcontainer/milvus.Dockerfile
+    container_name: milvus-indexnode
+#    image: milvusdb/milvus:v2.2.8
+    command: ["milvus", "run", "indexnode"]
+    environment:
+      PORT: 21121
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      PULSAR_ADDRESS: pulsar://pulsar:6650
+    volumes:
+      # container paths to milvus configuration files /milvus/configs/milvus.yaml
+      - .devcontainer/configs/milvus/milvus-cluster.yaml:/milvus/configs/milvus.yaml
+      - milvus_index:/milvus
+    depends_on:
+      indexcoord:
+        condition: service_started
+    networks:
+        - milvus-cluster
+
+  # Data Coordinator service
+  datacoord:
+    build:
+      context: .
+      dockerfile: .devcontainer/milvus.Dockerfile
+    container_name: milvus-datacoord
+#    image: milvusdb/milvus:v2.2.8
+    command: ["milvus", "run", "datacoord"]
+    environment:
+      PORT: 13333
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      PULSAR_ADDRESS: pulsar://pulsar:6650
+      DATA_COORD_ADDRESS: datacoord:13333
+    volumes:
+      # container paths to milvus configuration files /milvus/configs/milvus.yaml
+      - .devcontainer/configs/milvus/milvus-cluster.yaml:/milvus/configs/milvus.yaml
+      - milvus_data:/milvus
+#    healthcheck:
+#      test: ["CMD", "node", "/opt/healthcheck/healthcheck.js"]
+#      interval: 30s
+#      timeout: 30s
+#      retries: 5
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    networks:
+        - milvus-cluster
+
+  # Data Node service
+  datanode:
+    build:
+      context: .
+      dockerfile: .devcontainer/milvus.Dockerfile
+    container_name: milvus-datanode
+#    image: milvusdb/milvus:v2.2.8
+    command: ["milvus", "run", "datanode"]
+    environment:
+      PORT: 21124
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      PULSAR_ADDRESS: pulsar://pulsar:6650
+    volumes:
+      # container paths to milvus configuration files /milvus/configs/milvus.yaml
+      - .devcontainer/configs/milvus/milvus-cluster.yaml:/milvus/configs/milvus.yaml
+      - milvus_data:/milvus
+    depends_on:
+      datacoord:
+        condition: service_healthy
+    networks:
+        - milvus-cluster
+
+  # MySQL service
+  mysql:
+    image: mysql:8.0.28
+    container_name: milvus-mysql
+    shm_size: 2g
+    environment:
+      MYSQLD_USER: mysql
+      # # Disable User Secret
+      # MYSQL_ALLOW_EMPTY_PASSWORD: 0
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-milvus_meta}
+#      MYSQL_USER: ${MYSQL_USER:-alpha}
+#      MYSQL_PASSWORD: ${MYSQL_PASSWD:-developer}
+      # Secret for root access
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWD:-developer}
+    # run init db entrypoint script
+    volumes:
+      # # mysql data directory
+      - mysql_data:/var/lib/mysql
+      - .devcontainer/configs/mysql/entrypoint:/docker-entrypoint-initdb.d:rw
+    restart: on-failure
+    expose:
+      - 3306
+      - 33060
+      - 33061
+    ports:
+      - "3306:3306"
+      - "33060:33060"
+      - "33061:33061"
+    networks:
+      - milvus-cluster
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--silent"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+
+  # Milvus proxy service (proxy node) endpoint for milvus service
+  proxy:
+    build:
+      context: .
+      dockerfile: .devcontainer/milvus.Dockerfile
+    container_name: milvus-proxy
+#    image: milvusdb/milvus:v2.2.8
+    command: ["milvus", "run", "proxy"]
+    environment:
+      PORT: 19530
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      PULSAR_ADDRESS: pulsar://pulsar:6650
+    volumes:
+      # container paths to milvus configuration files /milvus/configs/milvus.yaml
+      - .devcontainer/configs/milvus/milvus-cluster.yaml:/milvus/configs/milvus.yaml
+      - milvus_proxy:/milvus
+    ports:
+      - "19530:19530"
+    networks:
+      - milvus-cluster
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      rootcoord:
+        condition: service_healthy
+#    healthcheck:
+#      test: [ "CMD", "curl", "-f", "http://127.0.0.1:9091/api/v1/health" ]
+#      interval: 30s
+#      timeout: 30s
+#      retries: 5
+
+  # Milvus GUI service
+  milvus-gui:
+    image: zilliz/attu:latest
+    container_name: milvus-gui
+    environment:
+      MILVUS_URL: http://standalone:19530
+    ports:
+      - "8000:3000"
+    networks:
+      - milvus-cluster
+    depends_on:
+      proxy:
+        condition: service_healthy

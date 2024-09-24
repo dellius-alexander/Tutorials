@@ -1,0 +1,36 @@
+[ req ]
+default_bits       = 4096
+default_md         = sha256
+default_keyfile    = ca-private-key.pem
+prompt             = no
+encrypt_key        = yes
+distinguished_name = req_distinguished_name
+x509_extensions    = v3_req
+
+[ req_distinguished_name ]
+# Country
+C  = COUNTRY
+# State
+ST = STATE
+# Locality
+L  = CITY
+# Organization
+O  = COMPANY-NAME
+# Organizational Unit
+OU = DEPARTMENT
+# Common Name
+CN = HOSTNAME
+# Email Address
+emailAddress = EMAIL_ADDRESS
+
+[ v3_req ]
+# Subject Alternative Name
+subjectAltName = @alt_names
+
+[ alt_names ]
+# DNS Names
+DNS.1 = example.com
+DNS.2 = www.example.com
+# IP Addresses
+IP.1 = 192.168.1.1
+IP.2 = 192.168.1.2
