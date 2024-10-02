@@ -165,4 +165,3 @@ python3.12 -m pip install --upgrade pip
 
 Now you’re all set with Python 3.12 and `pip`!
 
-
