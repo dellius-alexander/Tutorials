@@ -13,7 +13,7 @@ and set up a reverse proxy to fix the console issue.
 > **Note:**
 > - *This solution assumes you have a working Proxmox installation and are familiar 
 > with basic Linux system administration, ACLs, Permissions, and DNS Host Resolution Protocol.*
-> - For the purpose of this example we use `Nginx`.*
+> - *For the purpose of this example we use `Nginx`.*
 > - *Make sure to replace placeholders like `proxmox.mydomain.com` and `YOUR_PROXMOX_IP`.*
 > - *These instructions would apply to any proxy service, can work on any Linux distribution, 
 > but the paths and commands may vary.*
