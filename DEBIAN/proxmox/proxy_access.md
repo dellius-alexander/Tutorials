@@ -110,3 +110,7 @@ sudo systemctl restart pveproxy
 ```
 
 After these steps, try accessing `proxmox.mydomain.com` again, and the console should load correctly. If there are further issues, check the browser console for any error messages and confirm that the firewall settings allow traffic to and from the Proxmox server.
+
+---
+https://router.dalexander1618.synology.me/webman/3rdparty/sso/synoSSO-1.0.0.js
+https://sso.dalexander1618.synology.me/webman/sso/synoSSO-1.0.0.js
