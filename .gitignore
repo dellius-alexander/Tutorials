@@ -8,3 +8,4 @@
 /.idea/
 /**/@eaDir/
 /**/.DS_Store
+.venv
