@@ -1,6 +1,7 @@
 # Setting up VM Bridge Networking on Proxmox VE server with multiple IP addresses
 
 > Note:
+> 
 > This guide assumes you have a Proxmox VE server installed and running. You should have 
 > a basic understanding of networking concepts and the Proxmox VE environment. You should 
 > also have control over setting static ip addresses on your network router while setting up 
