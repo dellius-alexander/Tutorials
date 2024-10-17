@@ -55,12 +55,19 @@ Host my-server
 ```
 
 ### Explanation and Best Practices
-1. **Global Settings (`Host *`)**: Apply defaults to all hosts to minimize repeated configuration and enforce best practices.
-2. **Identity Management**: Use `IdentityFile` to specify the SSH key for each host. This practice ensures you use the correct key for each connection.
-3. **Strict Host Key Checking**: This setting improves security but can be adjusted (`ask`, `yes`, or `no`) based on the environment and user preference.
-4. **Use of Jump Hosts (`ProxyJump`)**: ProxyJump simplifies connecting through intermediate hosts and improves security by limiting exposure of your credentials to multiple systems.
-5. **Connection Multiplexing (`ControlMaster`, `ControlPath`, `ControlPersist`)**: This improves efficiency by sharing an existing connection for multiple sessions, reducing the time spent re-authenticating.
+1. **Global Settings (`Host *`)**: Apply defaults to all hosts to minimize repeated 
+configuration and enforce best practices.
+2. **Identity Management**: Use `IdentityFile` to specify the SSH key for each host. 
+This practice ensures you use the correct key for each connection.
+3. **Strict Host Key Checking**: This setting improves security but can be adjusted 
+(`ask`, `yes`, or `no`) based on the environment and user preference.
+4. **Use of Jump Hosts (`ProxyJump`)**: ProxyJump simplifies connecting through intermediate 
+hosts and improves security by limiting exposure of your credentials to multiple systems.
+5. **Connection Multiplexing (`ControlMaster`, `ControlPath`, `ControlPersist`)**: This 
+improves efficiency by sharing an existing connection for multiple sessions, reducing 
+the time spent re-authenticating.
 6. **X11 Forwarding**: It's disabled globally unless necessary for security.
 7. **Host Aliases**: Make use of aliases to quickly connect using `ssh aliasname`.
 
-This template provides flexibility, security, and usability when managing multiple SSH hosts. Let me know if you'd like any specific configurations for different scenarios.
+This template provides flexibility, security, and usability when managing multiple SSH hosts.
+Let me know if you'd like any specific configurations for different scenarios.
