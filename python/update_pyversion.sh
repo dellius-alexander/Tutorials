@@ -27,4 +27,9 @@ alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.12 3 1>&2 2>/dev/null
 alternatives --set python3 /usr/bin/python3.12 1>&2 2>/dev/null
 alternatives --set pip3 /usr/bin/pip3.12 1>&2 2>/dev/null
 
+# pyenv lets you easily switch between multiple versions of Python
+curl https://pyenv.run | bash
+
+# update-alternatives --config python
+
 echo "Python 3.12 is now the default version"

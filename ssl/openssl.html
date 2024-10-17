@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Document</title>
+</head>
+    <body>
+    <div class="create-ca">
+
+        <h1>Creating a CA</h1>
+
+        <p>
+            Creating a Certificate Authority is easy. There are many scripts out there to do it for you. However, creating a CA that is easy to manage can be tricky. This should walk you through creating a CA and explain all the pieces.</p>
+
+        <p>
+            <strong>Note</strong>: This page takes an extra step to make a fairly PKIX-compliant Certificate Authority. In pariticular, it ensures that the email address associated with your CA is in the <code>SubjectAltName</code> extension rather than in the DN. The former is the PKIX and X509v3 standard way of presenting an email address while the later is the old X509v1 way.</p>
+
+        <h2 class="sectionheader">Initial Preperation</h2>
+
+        <ol>
+            <li>
+                Create the directory your CA will live in
+                <div class="command">
+                    <code>mkdir CA</code>
+                </div>
+            </li>
+
+            <li>
+                Create the various pieces
+                <div class="command">
+                    <code>mkdir CA/{certsdb,certreqs,crl,private}</code>
+                </div>
+
+                Here's what each of those directories do:
+                <dl>
+                    <dt>certsdb</dt>
+                    <dd>This is where signed certs will be stored</dd>
+
+                    <dt>certreqs</dt>
+                    <dd>This is where copies of the original CSRs will be stored</dd>
+
+                    <dt>crl</dt>
+                    <dd>This is where your CRL will be stored</dd>
+
+                    <dt>private</dt>
+                    <dd>This is where the private key for the CA will live</dd>
+                </dl><br>
+            </li>
+
+            <li>
+                Protect your private directory
+                <div class="command">
+                    <code>chmod 700 CA/private</code>
+                </div>
+            </li>
+
+            <li>
+                Create the flat-file DB for your certificates
+                <div class="command">
+                    <code>touch CA/index.txt</code>
+                </div>
+
+                <p>
+                    This is where a list of all signed certs will go. Openssl will use this to keep track of what's happened.</p>
+            </li>
+        </ol>
+
+        <h2 class="sectionheader">Configuration</h2>
+
+        <ol>
+            <li>
+                You'll want to make a configuration file for the CA separate from the system openssl configuration file. So move into the CA directory, and make a copy:<br>
+                <div class="command">
+                    <code>
+                        cd CA<br>
+                        cp /etc/openssl.cnf .
+                    </code>
+                </div>
+
+                <p>
+                    Your system openssl.cnf may be in some place other than <code>/etc/openssl.cnf</code>. If it's not there, try <code>/usr/lib/ssl/openssl.cnf</code> or <code>/usr/share/ssl/openssl.cnf</code>. If all else fails, run <code>locate openssl.cnf</code>.</p>
+            </li>
+
+            <li>
+                We need to make some changes to the openssl.cnf. Start with the base config in <a href="opensslconf.html">openssl.cnf page</a>.<br><br>
+            </li>
+
+            <li>
+                Now, in order to make sure the CA itself has the email in SubjectAltName instead of the Subject (for PKIX compliance), ensure that your <code>[ v3_req ]</code> section has <code>subjectAltName = email:move</code>. If you'd prefer the old v1-style way of email in the Subject, simply remove this line.<br><br>
+            </li>
+
+            <li>
+                Next, unfortunately since openssl doesn't always handle things nicely, we need to make a copy of both the <code>v3_ca</code> and <code>usr_cert</code> sections. Then to the original's, we'll add the line <code>SubjectAltName = email:move</code>. Again, this is necessary for a PKIX compliant CA. Skip this step if you prefer the old way. This will look like:<br>
+
+                <pre class="conf">####################################################################
+# Extensions for when we sign normal certs (specified as default)
+[ usr_cert ]
+basicConstraints = CA:false
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+subjectAltName = email:move
+
+####################################################################
+# Same as above, but cert req already has SubjectAltName
+[ usr_cert_has_san ]
+basicConstraints = CA:false
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+
+####################################################################
+# Extensions to use when signing a CA
+[ v3_ca ]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+basicConstraints = CA:true
+subjectAltName=email:move
+
+####################################################################
+# Same as above, but CA req already has SubjectAltName
+[ v3_ca_has_san ]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+basicConstraints = CA:true
+</pre>
+
+                <p>
+                    The reason we have to do this is that if you have <code>subjectAltName = email:move</code> set when signing a certificate that doesn't have an email in the subject (i.e. is already PKIX compliant), openssl will 'move' the email from the subject (since it's not there, that's null) to the SubjectAltName extension thus deleting the original. Remember, you use a section with the <code>-extensions</code> arguement.</p>
+
+                <p>
+                    All of these options are explained in <a href="opensslconf.html">openssl.cnf page</a>.</p>
+            </li>
+
+            <li>
+                Decide on a CRL distribution method. In order to revoke certificates, you need to make a CRL publically available. This is usually done via a web server. For this example, we'll say you're going to put your CRL at http://www.example.com/example_ca.crl. Then you'll need to add this information to <strong>all 4</strong> extension sections: the <code>v3_ca</code>, <code>v3_ca_has_san</code>, <code>usr_cert</code>, and <code>usr_cert_has_san</code> sections. To do that, add a line to each section as follows:<br>
+                <br>
+                <div class="conf">crlDistributionPoints = URI:http://www.example.com/example_ca.crl
+                </div>
+
+                <p>
+                    Again, be sure to put this <strong>all 4</strong> extension sections.</p>
+            </li>
+
+        </ol>
+
+        <h2 class="sectionheader">Create The CA</h2>
+
+        <ol>
+            <li>
+                Create the keypair (private key and CSR)
+                <div class="command">
+                    <code>
+                        openssl req -new -newkey rsa:2048 -keyout private/cakey.pem -out careq.pem -config ./openssl.cnf
+                    </code>
+                </div>
+
+                <p>
+                    Here <code>-new</code> denotes a new keypair, <code>-newkey rsa:2048</code> specifies the size and type of your private key: RSA 2048-bit, <code>-keyout</code> dictates where they new private key will go, <code>-out</code> determines where the request will go, and <code>-config</code> tells openssl to use our config rather than the default config.</p>
+
+                <p>
+                    Note that as of January 1, 2011, Microsoft will <a href="http://technet.microsoft.com/en-us/library/cc751157.aspx">remove all CAs with keys of size 1024-bit or smaller</a> from their browsers and OSes. You should be using 2048 or bigger anyway, but if you interact with Microsoft systems, you'll definitely have to ensure you set your keysize to 2048. The default for openssl is 1024, so be sure to specify it manually as we did above. Thanks to <a href="mailto:cfb@liquidreality.org">Chet Burgess</a> for the pointer.</p>
+
+            </li>
+
+            <li>
+                Self-sign the CSR to make your CA CRT
+                <div class="command">
+                    <code>
+                        openssl ca -create_serial -out cacert.pem -days 365 -keyfile private/cakey.pem -selfsign -extensions v3_ca_has_san -config ./openssl.cnf -infiles careq.pem
+                    </code>
+                </div>
+
+                <p>
+                    Note the choice of <code>v3_ca_has_san</code> here. If you prefer the old-style, simply use <code>v3_ca</code> here instead.</p>
+
+                <p>
+                    <code>-create_serial</code> is especially important. Many HOW-TOs will have you echo "01" into the serial file thus starting the serial number at 1, and using 8-bit serial numbers instead of 128-bit serial numbers. This will generate a random 128-bit serial number to start with. The randomness helps to ensure that if you make a mistake and start over, you won't overwrite existing serial numbers out there.<br>
+                    <code>-out</code> determines where the self-signed certificate will go.<br>
+                    <code>-days</code> determines how long the certificate will be valid for.<br>
+                    <code>-keyfile</code> specifies the private key to use for signing (this was created in the last step).<br>
+                    <code>-selfsign</code> tells openssl to use the data from the CSR when signing instead of expecting a CA CRT.<br>
+                    <code>-extensions</code> tells openssl to use the <q>v3_root_ca</q> section of the config we added above to determine what extensions to use.<br>
+                    <code>-config</code> again specifies our config.<br>
+                    <code>-infiles</code> specifies what to sign, which in this case is the CSR for our new CA.
+                </p>
+            </li>
+        </ol>
+
+        <p>
+            Note that while you can use <code>req</code> to create a self-signed certificate all in one step, <code>req</code> does not support the '-create_serial' option, and does not leave the intermediate CSR for you (though you can generate later), and thus is not the best option.</p>
+
+        <p>
+            You now have a functional Certificate Authority. See <a href="managing_ca.html">Managing your CA</a> for information on signing certificates, creating CRLs, and other management tasks. If you need to change an existing CA, see <a href="modifying_ca.html">Modifying your CA</a>.</p>
+        <br>
+
+    </div>
+
+    <div class="config">
+
+        <h1>Openssl.conf Walkthru</h1>
+
+        <p>
+            The man page for openssl.conf covers syntax, and in some cases specifics. But most options are documented in in the man pages of the subcommands they relate to, and its hard to get a full picture of how the config file works. This page aims to provide that.</p>
+
+        <p>
+            Let's start with how the file is structured. For starters, it's an INI-type file, which means sections begin with <code>[section_name]</code> and run until the next section begins. Anything within a section is a simple <code>key=value</code> pair.</p>
+
+        <p>
+            There is one additional caveat. Sometimes a key's value is expected to be a section name. This means there is no finite list of possible sections that the parser understands.</p>
+
+        <p>
+            So let's get started...</p>
+
+        <pre class="conf">[ ca ]
+default_ca      = CA_default
+</pre>
+
+        <p>
+            The "ca" section defines the way the CA acts when using the <code>ca</code> command to sign certificates. However, the only thing that should be in the CA section is the name of the default CA's section. This "default" section to use can be overridden by passing <code>-name</code> to <code>ca</code>.</p>
+
+        <pre class="conf">[ CA_default ]
+dir             = /var/ca
+</pre>
+
+        <p>
+            Here we start our CA_default section and defined a variable to hold our base directory. "dir" is not a key that openssl recognizes, so it's just a varible.</p>
+
+        <pre class="conf">certs		= $dir/certsdb
+new_certs_dir	= $certs
+database	= $dir/index.txt
+certificate	= $dir/cacert.pem
+private_key	= $dir/private/cakey.pem
+serial		= $dir/serial
+crldir		= $dir/crl
+crlnumber	= $dir/crlnumber
+crl		= $crldir/crl.pem
+RANDFILE	= $dir/private/.rand
+</pre>
+
+
+        <dl>
+            <dt>certs / new_certs_dir</dt>
+            <dd>Depending on version, one or the other of these may be used, so we assign one a value and assign it to the other. This is, as you might expect, where certs go after we sign them.</dd>
+
+            <dt>database</dt>
+            <dd>This is the database of signed certificates. Openssl uses this internally to keep track of things.</dd>
+
+            <dt>certificate</dt>
+            <dd>CA certificate</dd>
+
+            <dt>private_key</dt>
+            <dd>CA private key</dd>
+
+            <dt>serial</dt>
+            <dd>The serial number which the CA is currently at. <em>You should not initialize this with a number!</em> instead, use the <code>-create_serial</code> option, as mentioned in our <a href="creating_ca.html">Creating a CA</a> page.</dd>
+
+            <dt>crldir</dt>
+            <dd>This isn't a config option to openssl, so it's just defining a variable like $dir</dd>
+
+            <dt>crlnumber</dt>
+            <dd>This is the serial number, but for CRLs</dd>
+
+            <dt>crl</dt>
+            <dd>The current CRL</dd>
+
+            <dt>RANDFILE</dt>
+            <dd>This is a random file to read/write random data to/from.</dd>
+        </dl>
+
+        <pre class="conf">x509_extensions = usr_cert
+</pre>
+
+        <p>
+            This defines the section in the file to find the x509v3 extensions to be added to signed certificates.</p>
+
+        <pre class="conf">copy_extensions	= copy
+</pre>
+
+        <p>
+            When acting as a CA, we want to honor the extensions that are requested. Note that you do <em>not</em> want <code>copyall</code> here as it's a security risk and should only be used if you really know what you're doing.</p>
+
+        <pre class="conf">name_opt        = ca_default
+cert_opt        = ca_default
+</pre>
+
+        <p>
+            These simply define the way that the name and certificate information are displayed to you for "confirmation" before signing a certificate and should be left as-is.</p>
+
+        <pre class="conf">default_days    = 365
+default_crl_days= 30
+</pre>
+
+        <p>
+            The default life for a certificate and a CRL.</p>
+
+        <pre class="conf">default_md      = sha1
+preserve        = no
+</pre>
+
+        <p>
+            The default digest algorithm - this can be left alone unless you know what you're doing - and whether or not to preserve the DN. Preserving the DN is a site-specific thing: if you want all your certs to have the same DN order, than so "no" here and openssl will re-order the attributes in the DNs of CSRs to make them consistent. However, if you want to let people determind the order of their DN, set this to "yes."</p>
+
+        <pre class="conf">policy          = policy_match
+</pre>
+
+        <p>
+            This is the default policy section to use if none is specified.</p>
+
+        <pre class="conf">[ policy_match ]
+countryName             = match
+stateOrProvinceName     = match
+localityName            = supplied
+organizationName        = match
+organizationalUnitName  = optional
+commonName              = supplied
+emailAddress            = optional
+</pre>
+
+        <p>
+            In the "policy_match" policy, all fields listed as "match" must contain the exact same contents as that field in the CA's DN. All fields listed as "supplied" must be present. All fields listed as "optional" are allowed, but not required to be there. Anything allowed must be listed! So this policy requires the same country, State, and Organization name as the CA for all certs it signs.</p>
+
+        <pre class="conf">[ policy_anything ]
+countryName             = optional
+stateOrProvinceName     = optional
+localityName            = optional
+organizationName        = optional
+organizationalUnitName  = optional
+commonName              = supplied
+emailAddress            = optional
+</pre>
+
+        <p>
+            Here we define a "policy_anything" policy where we accept anything, and only require a CN. We can refer to this with a <code>-policy policy_anything</code>.</p>
+
+        <p>
+            At this point, we officially leave the <code>ca</code> area, and move into <code>req</code>.</p>
+
+        <pre class="conf">[ req ]
+default_bits            = 2048
+default_keyfile         = privkey.pem
+distinguished_name      = req_distinguished_name
+attributes              = req_attributes
+x509_extensions		= v3_ca
+req_extensions		= v3_req
+</pre>
+
+        <p>
+            Here we define the section for the <code>req</code> command. We define the default size, the name of the keyfile, the section that defines how to form the DN, what attributes to put in the request, and the section that defines what x509 extensions to request. Note there is a <code>req_extensions</code> where you can define a section that includes req extensions as well.</p>
+
+        <pre class="conf">string_mask = nombstr
+</pre>
+
+        <p>
+            This defines what kind of strings to accept. nombstr is basically non-UTF, printable strings. See the man page for details.</p>
+
+        <p>
+            We're now done with the <code>req</code> section and move onto <code>req_distinguished_name</code>, which as you'll recall is just value we assigned to the <code>distinguished_name</code> key in <code>req</code>. Again, this will define how to form the DN.</p>
+
+        <pre class="conf">[ req_distinguished_name ]
+countryName                     = Country Name (2 letter code)
+countryName_default             = US
+countryName_min                 = 2
+countryName_max                 = 2
+
+stateOrProvinceName             = State or Province Name (full name)
+stateOrProvinceName_default     = California
+
+localityName                    = Locality Name (eg, city)
+localityName_default            = Los Angeles
+</pre>
+
+        <p>
+            This says that <code>countryName</code>'s description is "Country Name (2 letter code)", it's default is "US" and that it's min and max is 2 letters. We also provide a description and default for <code>stateOrProvinceName</code> and <code>localityName</code>, but define no size restrictions for them.</p>
+
+        <pre class="conf">0.organizationName              = Organization Name (eg, company)
+0.organizationName_default      = ABCDEF Corporation
+</pre>
+
+        <p>
+            This works similar to the above, except that starting with a "0." denotes that this is the first entry for <code>organizationName</code>. Since it can be a multi-valued field, you have to define which one you're referring to. Here we'll only allow one.</p>
+
+        <pre class="conf">organizationalUnitName          = Organizational Unit Name (eg, section)
+
+commonName                      = Common Name (eg, YOUR name)
+commonName_max                  = 64
+
+emailAddress                    = Email Address
+emailAddress_max                = 64
+</pre>
+
+        <p>
+            Here we specify a description (but no default) for <code>organizationalUnitName</code> and a description and max size for <code>commonName</code>, and <code>emailAddress</code>. This ends the <code>req_distinguished_name</code> section, and thus what we can put in the DN.</p>
+
+        <pre class="conf">[ req_attributes ]</pre>
+
+        <p>
+            This would define extra attributes for our requests such as Challenge Passwords. I keep this section empty, but <b>it must exist</b>!</p>
+
+        <pre class="conf">[ usr_cert ]
+basicConstraints = CA:false
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+</pre>
+
+        <p>
+            The <code>usr_cert</code>, like <code>req_distinguished_name</code> was simply defined above. We previously did, <code>x509_extensions = usr_cert</code>, denoting the place to find the x509 extensions to put in certificates we'll be signing is <code>usr_cert</code>. You should refer to <a href="extensions.html">Extensions page</a> for details on these extensions.</p>
+
+        <p>
+            The first x509 extension we set is <code>basicConstraints</code>, and we provide it a value of <code>CA:false</code> which, as you might have guessed, says the certificate cannot be used as a CA. Next we set <code>subjectKeyIdentifier</code> to <code>hash</code> - this means the method for finding the SKI is to hash the public key. We then define <code>authorityKeyIdentifier</code> as <em>both</em> the SKI of the CA that signed us, and the issuer of the CA that signed us (<code>keyid</code> and <code>issue</code> respectively).</p>
+
+        <pre class="conf">[ v3_req ]
+subjectAltName = email:move</pre>
+
+        <p>
+            This section defines x509v3 extensions to request in our requests. We always want to put email addresses here instead of the DN, as it's PKIX compliant. If you want a PKIX complaint CA, be sure to see the <a href="creating_ca.html">Creating a CA page</a></p>
+
+        <pre class="conf">[ v3_ca ]
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid:always,issuer:always
+basicConstraints = CA:true
+</pre>
+
+        <p>
+            This section is used to define what extensions to use when signing a CA, and you would use this sectin (instead of the <code>usr_cert</code>, the previously defined default), by specifying <code>-extensions v3_ca</code> on the <code>ca</code> command line.</p>
+
+        <p>
+            Here, we define the same extensions as we did in <code>usr_cert</code>, but with some different values. First, we specifically require our AKI settings (if we can't get access to the required information, we'll fail) and our <code>basicConstraints</code> sets CA to true instead of false.</p>
+
+        <p>
+            That's it! Now, here's a sample openssl.conf with comments:</p>
+
+        <pre class="conf">HOME                    = .
+RANDFILE                = $ENV::HOME/.rnd
+
+####################################################################
+# CA Definition
+[ ca ]
+default_ca      = CA_default            # The default ca section
+
+####################################################################
+# Per the above, this is where we define CA values
+[ CA_default ]
+
+dir             = .                     # Where everything is kept
+certs           = $dir/certsdb          # Where the issued certs are kept
+new_certs_dir   = $certs                # default place for new certs.
+database        = $dir/index.txt        # database index file.
+certificate     = $dir/cacert.pem       # The CA certificate
+private_key     = $dir/private/cakey.pem# The private key
+serial          = $dir/serial           # The current serial number
+RANDFILE        = $dir/private/.rand    # private random number file
+
+crldir          = $dir/crl
+crlnumber       = $dir/crlnumber        # the current crl number
+crl             = $crldir/crl.pem       # The current CRL
+
+# By default we use "user certificate" extensions when signing
+x509_extensions = usr_cert              # The extentions to add to the cert
+
+# Honor extensions requested of us
+copy_extensions	= copy
+
+# Comment out the following two lines for the "traditional"
+# (and highly broken) format.
+name_opt        = ca_default            # Subject Name options
+cert_opt        = ca_default            # Certificate field options
+
+# Extensions to add to a CRL. Note: Netscape communicator chokes on V2 CRLs
+# so this is commented out by default to leave a V1 CRL.
+# crlnumber must also be commented out to leave a V1 CRL.
+#crl_extensions        = crl_ext
+default_days    = 365                   # how long to certify for
+default_crl_days= 30                    # how long before next CRL
+default_md      = sha1                  # which md to use.
+preserve        = no                    # keep passed DN ordering
+
+# A few difference way of specifying how similar the request should look
+# For type CA, the listed attributes must be the same, and the optional
+# and supplied fields are just that :-)
+policy          = policy_match
+
+####################################################################
+# The default policy for the CA when signing requests, requires some
+# resemblence to the CA cert
+#
+[ policy_match ]
+countryName             = match         # Must be the same as the CA
+stateOrProvinceName     = match         # Must be the same as the CA
+organizationName        = match         # Must be the same as the CA
+organizationalUnitName  = optional      # not required
+commonName              = supplied      # must be there, whatever it is
+emailAddress            = optional      # not required
+
+####################################################################
+# An alternative policy not referred to anywhere in this file. Can
+# be used by specifying '-policy policy_anything' to ca(8).
+#
+[ policy_anything ]
+countryName             = optional
+stateOrProvinceName     = optional
+localityName            = optional
+organizationName        = optional
+organizationalUnitName  = optional
+commonName              = supplied
+emailAddress            = optional
+
+####################################################################
+# This is where we define how to generate CSRs
+[ req ]
+default_bits            = 2048
+default_keyfile         = privkey.pem
+distinguished_name      = req_distinguished_name # where to get DN for reqs
+attributes              = req_attributes         # req attributes
+x509_extensions		= v3_ca  # The extentions to add to self signed certs
+req_extensions		= v3_req # The extensions to add to req's
+
+# This sets a mask for permitted string types. There are several options.
+# default: PrintableString, T61String, BMPString.
+# pkix   : PrintableString, BMPString.
+# utf8only: only UTF8Strings.
+# nombstr : PrintableString, T61String (no BMPStrings or UTF8Strings).
+# MASK:XXXX a literal mask value.
+# WARNING: current versions of Netscape crash on BMPStrings or UTF8Strings
+# so use this option with caution!
+string_mask = nombstr
+
+
+####################################################################
+# Per "req" section, this is where we define DN info
+[ req_distinguished_name ]
+countryName                     = Country Name (2 letter code)
+countryName_default             = US
+countryName_min                 = 2
+countryName_max                 = 2
+
+stateOrProvinceName             = State or Province Name (full name)
+stateOrProvinceName_default     = California
+
+localityName                    = Locality Name (eg, city)
+localityName_default            = Hawthorne
+
+0.organizationName              = Organization Name (eg, company)
+0.organizationName_default      = PhilNet
+
+organizationalUnitName          = Organizational Unit Name (eg, section)
+
+commonName                      = Common Name (eg, YOUR name)
+commonName_max                  = 64
+
+emailAddress                    = Email Address
+emailAddress_max                = 64
+
+
+####################################################################
+# We don't want these, but the section must exist
+[ req_attributes ]
+#challengePassword              = A challenge password
+#challengePassword_min          = 4
+#challengePassword_max          = 20
+#unstructuredName               = An optional company name
+
+
+####################################################################
+# Extensions for when we sign normal certs (specified as default)
+[ usr_cert ]
+
+# User certs aren't CAs, by definition
+basicConstraints=CA:false
+
+# Here are some examples of the usage of nsCertType. If it is omitted
+# the certificate can be used for anything *except* object signing.
+# This is OK for an SSL server.
+#nsCertType = server
+# For an object signing certificate this would be used.
+#nsCertType = objsign
+# For normal client use this is typical
+#nsCertType = client, email
+# and for everything including object signing:
+#nsCertType = client, email, objsign
+# This is typical in keyUsage for a client certificate.
+#keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+
+# PKIX recommendations harmless if included in all certificates.
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+
+# This stuff is for subjectAltName and issuerAltname.
+# Import the email address.
+#subjectAltName=email:copy
+# An alternative to produce certificates that aren't
+# deprecated according to PKIX.
+#subjectAltName=email:move
+
+
+####################################################################
+# Extension for requests
+[ v3_req ]
+# Lets at least make our requests PKIX complaint
+subjectAltName=email:move
+
+
+####################################################################
+# An alternative section of extensions, not referred to anywhere
+# else in the config. We'll use this via '-extensions v3_ca' when
+# using ca(8) to sign another CA.
+#
+[ v3_ca ]
+
+# PKIX recommendation.
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid:always,issuer:always
+
+# This is what PKIX recommends but some broken software chokes on critical
+# extensions.
+#basicConstraints = critical,CA:true
+# So we do this instead.
+basicConstraints = CA:true
+
+# Key usage: this is typical for a CA certificate. However since it will
+# prevent it being used as an test self-signed certificate it is best
+# left out by default.
+# keyUsage = cRLSign, keyCertSign
+
+# Some might want this also
+# nsCertType = sslCA, emailCA
+
+# Include email address in subject alt name: another PKIX recommendation
+#subjectAltName=email:move
+# Copy issuer details
+#issuerAltName=issuer:copy
+</pre>
+        <br>
+
+    </div>
+    <div class="managing">
+
+        <h1>Managing a CA</h1>
+
+        <p>
+            Now that you have a CA, this page will cover how to do things with it.</p>
+
+        <h2 class="sectionheader">Initial Preperation</h2>
+
+        <p>
+            You'll want to adjust the <code>policy</code> line (under your default <code>ca</code> section) in your openssl.conf. If it's set to <code>policy_match</code> then that means all certificates must match country, state, and organizationName of our CA, and must supply a locality and commonName. If you set it to <code>policy_anything</code> then the only thing required is a commonName.</p>
+
+        <p>
+            Of course, in reality, you probably want to define your own policy, one which requires various things to be present, but doesn't require they match your CA. Any, set the <code>policy</code> line to the appropriate policy.</p>
+
+        <p>
+            Additionally, you'll want to make sure that <code>x509_extensions</code> (under your default <code>ca</code> section) is set to whatever section of extensions you want to give people when you sign extensions. See the <a href="extensions.html">extensions page</a> for details on what these are and which ones you might want.</p>
+
+        <p>
+            Lastly, you'll probably want to setup the following aliases for ease-of-use:</p>
+
+        <pre class="conf">alias cert='openssl x509 -noout -text -in'
+alias req='openssl req -noout -text -in'
+alias crl='openssl crl -noout -text -in'
+</pre>
+
+        <p>
+            As you'll see below, there is plenty of room for other aliases, but these will allow you to look at a certificate by typing <code>cert foo.crt</code>, a request by typing <code>req foo.csr</code>, and a CRL by typing <code>crl foo.crl</code>.</p>
+
+        <h2 class="sectionheader">Signing Certificates</h2>
+
+        <p>
+            To sign a certificate request, dump it in your <code>certreqs</code> directory, and then type:</p>
+
+        <div class="command">
+            <code>openssl ca -config openssl.cnf -infiles certreqs/foo.csr</code>
+        </div>
+
+        <p>
+            This will dump out information about the foo.csr request as well as the certificate that will result if you sign. <b>You should verify this information carefully</b>. If you decide you want to sign, you will need to confirm by typing "y", as well as provide the passphrase for the CA's private key.</p>
+
+        <p>
+            At this point you'll have the signed certificate under the <code>certsdb</code> directory named by the serial number it was given, and with a <code>.pem</code> extension. You may deliver this to the original requestor. You may use plain-text means as this public cert does not need to be kept secure.</p>
+
+        <p>
+            If you are signing a certificate that needs a different set of extensions, for example, a subordinate CA, you can do:</p>
+
+        <div class="command">
+            <code>openssl ca -config openssl.cnf -extensions v3_ca -infiles certreqs/foo.csr</code>
+        </div>
+
+        <p>
+            And by the same token, you may choose a different policy with:</p>
+
+        <div class="command">
+            <code>openssl ca -config openssl.cnf -policy policy_match -infiles certreqs/foo.csr</code>
+        </div>
+
+        <p>
+            And obviously, you may use both.</p>
+
+
+        <h2 class="sectionheader">Revoking a Certificate</h2>
+
+        <p>If a key gets compromised, is superseded, or otherwise no longer needed, the CA should revoke it. This is done via:</p>
+
+        <div class="command">
+            <code>openssl ca -config openssl.cnf -revoke certsdb/5FE840894254A22.pem</code>
+        </div>
+
+        <p>
+            This will ask you for the passphrase of the CA's private key and then revoke the certificate. You can also specify a <code>-crl_reason</code> option where the reason is one of the following:</p>
+
+        <ul>
+            <li>unspecified</li>
+            <li>keyCompromise</li>
+            <li>CACompromise</li>
+            <li>affiliationChanged</li>
+            <li>superseded</li>
+            <li>cessationOfOperation</li>
+            <li>certificateHold</li>
+        </ul>
+
+        <p>
+            Technically another reason, "removeFromCRL" is valid, but unsupported in openssl. An example of using one of these would be:</p>
+
+        <div class="command">
+            <code>openssl ca -config openssl.cnf -crl_reason superseded -revoke certsdb/5FE840894254A22.pem</code>
+        </div>
+
+        <p>
+            The options <code>-crl_compromise</code> and <code>-crl_CA_compromise</code> allow you to specify times of compromise and set the crl_reason to the respective setting.</p>
+
+        <p>Once you've revoked a certificate <b>be sure to update the CRL</b>. Instructions on how to do that are below.</p>
+
+
+        <h2 class="sectionheader">Creating CRLs</h2>
+
+        <p>CRLs should be created regularly and made available to the users of your CA - and their users! CRLs can be created without having ever revoked a certificate. However, if you revoke a certificate, a new CRL should be generated immediately.</p>
+
+        <p>To generate a CRL, simply do:</p>
+
+        <div class="command">
+            <code>openssl ca -config openssl.cnf -gencrl -out crl.pem</code>
+        </div>
+
+        <p>Then provide this CRL in the URL provided in your crlDistributionPoint extension.</p>
+        <br>
+
+    </div>
+    <div class="x509extensions">
+
+        <h1>X509 Extensions</h1>
+
+        <p>
+            There are many extensions available in x.509 v3, but a few core ones are important. Extensions come in two flavors: critical and non-critical. The spec often defines extensions as "MUST be marked critical" or "SHOULD be marked critical." If an extension is marked critical it means that any implementation that doesn't support that extension needs to not accept the certificate.  Additionally, some implimentations seem to get very confused by critical extensions in general. For this reason, many SSL rollouts will follow PKIX guidelines everywhere *except* marking extensions as critical.</p>
+
+        <p>
+            So what are these important extensions? Glad you asked. There are three that many modern implimentatinos require - especially for non-flat setups (i.e.  anything with nested CAs).</p>
+
+        <dl>
+            <dt>Subject Key Identifier (SKID)</dt>
+            <dd>This is simply a hash of the public key inside the certificate. As it's name suggests, it is used to unquely identify a key in the event a CA has more than one. It is important that CA certificates have this.</dd>
+
+            <dt>Authority Key Identifier (AKID)</dt>
+            <dd>This can be a few different things. Most commonly, it's the value of the Issuer's Subject Key Identifier. Together SKIDs and AKIDs help us to ensure the chain of authority. However, an AKID can also be the "Issuer" field and "Serial" field *of the issuer*. In other words, if A signs B which signs C, C's AKID can be B's Issuer (i.e., A's subject).</dd>
+
+            <dt>Basic Constraints</dt>
+            <dd>This defines where or not a certificate can act as a CA or not, and optionally defines the maximum length of the path from this certificate to an end-entity certificate.</dd>
+        </dl>
+
+        <p>
+            The above three are, generally speaking, the three main extensions needed for a V3 certificate. Note that technically a root-level CA doesn't need an AKID (it'd be the same as it's SKID), though it doesn't hurt. Other useful extensions follow.</p>
+
+        <dl>
+            <dt>crlDistributionPoint</dt>
+            <dd>This defines the path to find revocation information for that certificate. Since CRLs are generated by a CA, if you think about it, the extension is really defining where the issuer's CRL lives.</dd>
+
+            <dt>Netscape Cert Type</dt>
+            <dd>Determines what kind of certificate this is: Server, Client, etc.</dd>
+
+            <dt>Key Usage</dt>
+            <dd>Determines what the private key may be used for: signing, encrypting, etc.</dd>
+        </dl>
+
+
+    </div>
+    <div class="modifying-ca">
+
+        <h1>Modifying a CA</h1>
+
+        <h2 class="sectionheader">Introduction</h2>
+        <p>
+            OK, by now you've <a href="creating_ca.html">created</a> a CA, and you're <a href="managing_ca.html">managing</a> it... but what happens when you made a mistake? What happens when you need to change your CRLdp <a href="extensions.html">extension</a>? What if you need to add some extension you didn't think of?</p>
+
+        <p>
+            Sure, if you haven't yet issued any certificates, maybe you just start over, but what if that's not an option? You can change <b>some</b> parts of your CA.</p>
+
+        <p>
+            The concern, of course, with a modification of the CA is "will certificates still validate." And the answer is "maybe." Provided you keep the same key-pair, it's the CA private key that signed the certificates and a hash of the CA public key that's in the certificates AKI <a href="extensions.html">extension</a>. So provided the keypair stays the same, certificates should continue to validate. However, if for AKID you're using the Subject and Serial of the CA's parent, then the Serial number will have changed, and verification will fail.</p>
+
+        <h2 class="sectionheader">Intial Considerations</h2>
+
+        <p>
+            However, it's wise to consider other ramifications of the change you want to make. For example, if you're going to change the CRLdp extension, all certificates signed after the modification would have the new URI for your CRL, but all certificates before this will have the old one. So, you would want to keep the old URI up-to-date until all certificates issued prior to the modification have expired. It's easy to make the mistake of thinking "oh, I can always revoke the old ones" - but remember that anyone checking for this will be checking the URI in the old certificate and thus the old URI!</p>
+
+        <p>
+            Obviously I can't list all possible changes and their ramifications here, but it is important to consder the ramifications of a change to your CA mid-stream. That said, there's many times when this is useful!</p>
+
+
+        <h2 class="sectionheader">What you need</h2>
+
+        <p>
+            First and foremost, you need a your original request from when you generated your CA. Now, if you don't have it (if you used the <code>x509</code> to create a self-signed certificate instead of <code>req</code> and <code>ca</code> as demonstrated <a href="creating_ca.html">in my method</a>, then you'll need to use your existing certificate to re-generate the CSR.</p>
+
+        <p>
+            You can do this using <code>req</code> as follows:</p>
+
+        <div class="command">
+            <code>openssl x509 -x509toreq -in cacert.pem -out phil.pem -signkey private/cakey.pem</code>
+        </div>
+
+        <p>
+            However, <strong>note well</strong> that due to a bug in the <code>x509</code> command any extensions are <strong>not</strong> transfered to your new CSR. So, for example, if you used my method for creating a CA where the email address is only in <code>SubjectAltNames</code> extension and not anywhere else, this method will not work for you - you'll lose that email address.</p>
+
+        <p>
+            Obviously you'll need the CA private key, and your CA directory with the index and serial files, etc.</p>
+
+
+        <h2 class="sectionheader">Resigning your CA</h2>
+
+        <p>
+            First, make a backup of your CA keys and confs:</p>
+
+        <div class="command">
+            <code>tar zcf ca-pre-modification.tar.gz ca/</code>
+        </div>
+
+        <p>
+            Now, if your change involves a modification to the openssl.cnf (such as a CRLdp change), then adjust that now. If it involved a change to the signing command then be sure to adjust the following command. Once you're ready, simply re-sign:</p>
+
+        <div class="command">
+            <code>openssl ca -create_serial -out cacert.pem -days 365 -keyfile private/cakey.pem -selfsign -extensions v3_root_ca -config ./openssl.cnf -infiles careq.pem</code>
+        </div>
+
+        <p>
+            Now, you have a new CA certificate - but you'll need to test this CA against a pre-existing certificate prior to doing anything else. To do this, run:</p>
+
+        <div class="command">
+            <code>openssl verify -CAfile cacert.req some_cert.crt</code>
+        </div>
+
+        <p>
+            Where <q>some_cert.crt</q> is a cert signed by your CA prior to the modification. You'll probably want to test a few certificates - particularly if different certificates have different kinds of AKI extensions. Once you're satisfied that every variant of certificate you've issued prior to the modification still verifies, you're done!</p>
+
+
+    </div>
+    </body>
+</html>
