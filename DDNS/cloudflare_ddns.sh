@@ -31,18 +31,25 @@ ipAddr="$4"
 
 # Fetch and filter IPv6 address if enabled
 if [[ $ipv6 = "true" ]]; then
+
     ip6fetch=$(ip -6 addr show eth0 | grep -oP "$ipv6Regex" || true)
     ip6Addr=$(if [ -z "$ip6fetch" ]; then echo ""; else echo "${ip6fetch:0:$((${#ip6fetch})) - 7}"; fi)
     recType6="AAAA"
 
     if [[ -z "$ip6Addr" ]]; then
+    
         ipv6="false"
+        
     fi
     if [[ $ipAddr =~ $ipv4Regex ]]; then
+    
         recordType="A"
+        
     else
+    
         recordType="AAAA"
         ipv6="false"
+        
     fi
 else
     recordType="A"
@@ -60,6 +67,7 @@ res=$(curl -s -X GET "$listDnsApi" -H "Authorization: Bearer $password" -H "Cont
 resSuccess=$(echo "$res" | jq -r ".success")
 
 if [[ $resSuccess != "true" ]]; then
+
     errorMsg=$(echo "$res" | jq -r ".errors[0].message")
     log "Error listing $recordType records: $errorMsg"
     report "badauth"
@@ -68,9 +76,12 @@ fi
 
 # Fetch DNS records for IPv6 if enabled
 if [[ $ipv6 = "true" ]]; then
+
     resv6=$(curl -s -X GET "$listDnsv6Api" -H "Authorization: Bearer $password" -H "Content-Type:application/json")
     resv6Success=$(echo "$resv6" | jq -r ".success")
+    
     if [[ $resv6Success != "true" ]]; then
+    
         errorMsg=$(echo "$resv6" | jq -r ".errors[0].message")
         log "Error listing $recType6 records: $errorMsg"
         report "badauth"
@@ -82,10 +93,13 @@ fi
 recordId=$(echo "$res" | jq -r ".result[0].id")
 recordIp=$(echo "$res" | jq -r ".result[0].content")
 recordProx=$(echo "$res" | jq -r ".result[0].proxied")
+
 if [[ $ipv6 = "true" ]]; then
+
     recordIdv6=$(echo "$resv6" | jq -r ".result[0].id")
     recordIpv6=$(echo "$resv6" | jq -r ".result[0].content")
     recordProxv6=$(echo "$resv6" | jq -r ".result[0].proxied")
+    
 fi
 
 # Check if the IP address hasn't changed
@@ -101,12 +115,16 @@ update6DnsApi="https://api.cloudflare.com/client/v4/zones/${username}/dns_record
 
 # Create or update the primary record
 if [[ $recordId = "null" ]]; then
+
     log "Creating new $recordType record for $hostname"
     proxy="true" # Enable proxy for new records
     res=$(curl -s -X POST "$createDnsApi" -H "Authorization: Bearer $password" -H "Content-Type:application/json" --data "{\"type\":\"$recordType\",\"name\":\"$hostname\",\"content\":\"$ipAddr\",\"proxied\":$proxy}")
+
 else
+
     log "Updating existing $recordType record for $hostname"
     res=$(curl -s -X PUT "$updateDnsApi" -H "Authorization: Bearer $password" -H "Content-Type:application/json" --data "{\"type\":\"$recordType\",\"name\":\"$hostname\",\"content\":\"$ipAddr\",\"proxied\":$recordProx}")
+
 fi
 
 resSuccess=$(echo "$res" | jq -r ".success")
@@ -117,21 +135,32 @@ fi
 
 # Create or update the IPv6 record if enabled
 if [[ $ipv6 = "true" ]]; then
+
     if [[ $recordIdv6 = "null" ]]; then
+    
         log "Creating new $recType6 record for $hostname"
         proxy="true" # Enable proxy for new records
         res6=$(curl -s -X POST "$createDnsApi" -H "Authorization: Bearer $password" -H "Content-Type:application/json" --data "{\"type\":\"$recType6\",\"name\":\"$hostname\",\"content\":\"$ip6Addr\",\"proxied\":$proxy}")
+    
     else
+    
         log "Updating existing $recType6 record for $hostname"
         res6=$(curl -s -X PUT "$update6DnsApi" -H "Authorization: Bearer $password" -H "Content-Type:application/json" --data "{\"type\":\"$recType6\",\"name\":\"$hostname\",\"content\":\"$ip6Addr\",\"proxied\":$recordProxv6}")
+    
     fi
+    
     res6Success=$(echo "$res6" | jq -r ".success")
+    
     if [[ $res6Success != "true" ]]; then
+    
         errorMsg=$(echo "$res6" | jq -r ".errors[0].message")
         log "Error updating $recType6 record: $errorMsg"
+        
     fi
 else
+
     res6Success="false" # Ensure res6Success is defined if IPv6 is not enabled
+    
 fi
 
 # Report the final status based on the update results
