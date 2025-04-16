@@ -1,6 +1,6 @@
 # Synology Domain/LDAP Client Setup Guide for DS1618+ on DSM 7.2
 
-This guide provides step-by-step instructions to configure the "Domain/LDAP" client in the Synology NAS Control Panel to connect to an LDAP server (configured on the same or another Synology NAS) for user authentication and permission management. It includes DNS implementation for DDNS addresses (`hyfisolutions.com` and `dalexander1618.domain_name_2.com`), SSL configuration, and best practices.
+This guide provides step-by-step instructions to configure the "Domain/LDAP" client in the Synology NAS Control Panel to connect to an LDAP server (configured on the same or another Synology NAS) for user authentication and permission management. It includes DNS implementation for DDNS addresses (`domain_name_1.com` and `domain_name_2_prefix.domain_name_2.com`), SSL configuration, and best practices.
 
 ## Prerequisites
 
